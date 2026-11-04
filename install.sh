@@ -125,16 +125,15 @@ as_root() {
     fi
 }
 
-# The shell rc file that gets the managed block.
-rc_file="$HOME/.bashrc"
+# The shell rc files that may hold the managed block.
+rc_bash="$HOME/.bashrc"
+rc_zsh="$HOME/.zshrc"
+
+rc_file="$rc_bash"
 shell_name="$(basename "${SHELL:-bash}")"
 if [ "$shell_name" = "zsh" ]; then
-    rc_file="$HOME/.zshrc"
+    rc_file="$rc_zsh"
 fi
-
-# Every rc file the managed block may live in.
-rc_files="$HOME/.bashrc
-$HOME/.zshrc"
 
 strip_block() {
     # Print the file without the managed block, including the blank line
@@ -199,12 +198,11 @@ download() {
 if [ "$do_uninstall" -eq 1 ]; then
     as_root rm -f "$bindir/mkcd" "$bindir/cdmk"
     if [ "$do_rc" -eq 1 ]; then
-        for rc in $rc_files; do
-            remove_block "$rc"
-        done
+        remove_block "$rc_bash"
+        remove_block "$rc_zsh"
     fi
     printf 'mkcd removed from %s\n' "$bindir"
-    printf 'shell block removed from %s and %s\n' "$HOME/.bashrc" "$HOME/.zshrc"
+    printf 'shell block removed from %s and %s\n' "$rc_bash" "$rc_zsh"
     exit 0
 fi
 
