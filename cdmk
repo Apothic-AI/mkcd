@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+#
+# cdmk - alias for mkcd.
+#
+#   cdmk <dir> [<dir>...]
+#
+# Behaves exactly like mkcd: the directory is created when it does not exist
+# and the shell changes into it.  The name is kept alongside mkcd because
+# "cdmk" reads better in some shells and matches the cd-first habit.
+
+__cdmk_version='1.0.0'
+
+# Was this file sourced rather than executed?
+if [ -n "${BASH_VERSION:-}" ] && [ "${BASH_SOURCE[0]}" != "${0}" ]; then
+    __cdmk_sourced=1
+elif [ -n "${ZSH_VERSION:-}" ] && [ "${ZSH_EVAL_CONTEXT:-toplevel}" != "toplevel" ]; then
+    __cdmk_sourced=1
+else
+    __cdmk_sourced=0
+fi
+
+# Locate the mkcd script: an explicit override, the file next to this one,
+# or mkcd somewhere on PATH.  BASH_SOURCE is a bash thing, so fall back to
+# $0, which holds the path of the file inside zsh.
+__cdmk_script="${MKCD_SCRIPT:-}"
+
+if [ -z "$__cdmk_script" ]; then
+    for __cdmk_cand in "${BASH_SOURCE[0]:-$0}" "$0"; do
+        case "$__cdmk_cand" in
+            */*) ;;
+            *) continue ;;
+        esac
+
+        __cdmk_dir="$(cd -- "$(dirname -- "$__cdmk_cand")" 2>/dev/null && pwd -P)"
+        if [ -n "$__cdmk_dir" ] && [ -r "$__cdmk_dir/mkcd" ]; then
+            __cdmk_script="$__cdmk_dir/mkcd"
+            break
+        fi
+    done
+fi
+
+if [ -z "$__cdmk_script" ] && command -v mkcd >/dev/null 2>&1; then
+    __cdmk_script="$(command -v mkcd)"
+fi
+
+if [ -z "$__cdmk_script" ] || [ ! -r "$__cdmk_script" ]; then
+    printf 'cdmk: could not find the mkcd script\n' >&2
+    return 1 2>/dev/null || exit 1
+fi
+
+# Tell mkcd whether the change of directory can reach the calling shell.
+MKCD_SOURCED="$__cdmk_sourced"
+export MKCD_SOURCED
+
+# Run mkcd.  Sourcing it keeps the change of directory in this shell.
+source "$__cdmk_script" "$@"
+__cdmk_status=$?
+unset MKCD_SOURCED
+
+# The public function.  Sourcing this file installs it into the shell.
+cdmk() {
+    mkcd "$@"
+}
+
+if [ "$__cdmk_sourced" -eq 1 ]; then
+    return "$__cdmk_status"
+fi
+exit "$__cdmk_status"

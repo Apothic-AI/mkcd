@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+#
+# mkcd - create a directory if it does not exist, then change into it.
+#
+#   mkcd <dir> [<dir>...]
+#
+# Every path is created together with its parents when it is not already an
+# existing directory, and the shell then changes into the last path given.
+# A path that exists but is not a directory is reported as an error.
+#
+# The change of directory reaches your shell when the script is sourced or
+# when it is called through the shell function that install.sh sets up.
+# Running it as a program still works, but the change of directory then
+# applies to that program alone.
+
+__mkcd_version='1.0.0'
+
+# Was this file sourced rather than executed?  Only used to decide whether
+# a hint about the change of directory is worth printing.  A wrapper script
+# (cdmk) can answer directly through MKCD_SOURCED.
+if [ -n "${MKCD_SOURCED:-}" ]; then
+    __mkcd_sourced="$MKCD_SOURCED"
+elif [ -n "${BASH_VERSION:-}" ] && [ "${BASH_SOURCE[0]}" != "${0}" ]; then
+    __mkcd_sourced=1
+elif [ -n "${ZSH_VERSION:-}" ] && [ "${ZSH_EVAL_CONTEXT:-toplevel}" != "toplevel" ]; then
+    __mkcd_sourced=1
+else
+    __mkcd_sourced=0
+fi
+
+__mkcd_usage() {
+    cat <<'EOF'
+Usage: mkcd <dir> [<dir>...]
+
+Create <dir> and its parents when they do not exist, then change into it.
+
+  -h, --help       show this help and exit
+  -V, --version    show the version and exit
+
+Examples:
+  mkcd projects/new-api   # create projects/new-api, then change into it
+  mkcd ~/src/mkcd         # a leading ~ is expanded
+  mkcd /var/log           # an existing directory is just entered
+EOF
+}
+
+# Expand a leading ~ or ~/ the way the shell would.
+__mkcd_expand_tilde() {
+    case "$1" in
+        '~')    printf '%s\n' "$HOME" ;;
+        '~/'*)  printf '%s\n' "$HOME/${1#\~/}" ;;
+        *)      printf '%s\n' "$1" ;;
+    esac
+}
+
+# Make sure the given path exists as a directory.
+# The local is not called "path": that name is tied to PATH in zsh.
+__mkcd_ensure() {
+    local target_dir
+    target_dir="$(__mkcd_expand_tilde "$1")"
+
+    if [ -d "$target_dir" ]; then
+        return 0
+    fi
+
+    if [ -e "$target_dir" ]; then
+        printf 'mkcd: not a directory: %s\n' "$1" >&2
+        return 1
+    fi
+
+    if ! mkdir -p -- "$target_dir"; then
+        printf 'mkcd: failed to create directory: %s\n' "$1" >&2
+        return 1
+    fi
+
+    printf 'created %s\n' "$target_dir" >&2
+    return 0
+}
+
+__mkcd_main() {
+    local last='' target saw_dashdash=0
+
+    while [ "$#" -gt 0 ]; do
+        if [ "$saw_dashdash" -eq 1 ]; then
+            target="$1"
+        else
+            case "$1" in
+                -h|--help)
+                    __mkcd_usage
+                    return 0
+                    ;;
+                -V|--version)
+                    printf 'mkcd %s\n' "$__mkcd_version"
+                    return 0
+                    ;;
+                --)
+                    saw_dashdash=1
+                    shift
+                    continue
+                    ;;
+                -*)
+                    printf 'mkcd: unknown option: %s\n' "$1" >&2
+                    __mkcd_usage >&2
+                    return 2
+                    ;;
+                *)
+                    target="$1"
+                    ;;
+            esac
+        fi
+
+        if [ -z "$target" ]; then
+            printf 'mkcd: empty path\n' >&2
+            return 2
+        fi
+
+        __mkcd_ensure "$target" || return 1
+        last="$(__mkcd_expand_tilde "$target")"
+        shift
+    done
+
+    if [ -z "$last" ]; then
+        if [ "$__mkcd_sourced" -eq 1 ]; then
+            # Sourced without arguments: only make the function available.
+            return 0
+        fi
+        printf 'mkcd: missing directory argument\n' >&2
+        __mkcd_usage >&2
+        return 2
+    fi
+
+    if ! cd -- "$last"; then
+        printf 'mkcd: failed to enter directory: %s\n' "$last" >&2
+        return 1
+    fi
+
+    if [ "$__mkcd_sourced" -ne 1 ]; then
+        printf 'mkcd: note: this change of directory does not affect the calling shell.\n' >&2
+        printf 'mkcd:       source the script, or run install.sh, to use it as a shell function.\n' >&2
+    fi
+
+    pwd
+    return 0
+}
+
+# The public function.  Sourcing this file installs it into the shell.
+mkcd() {
+    __mkcd_main "$@"
+}
+
+# Run straight away when the file is executed or sourced with arguments.
+if [ "$#" -gt 0 ] || [ "$__mkcd_sourced" -ne 1 ]; then
+    __mkcd_main "$@"
+fi
